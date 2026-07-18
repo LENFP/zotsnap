@@ -516,8 +516,14 @@ async function geminiOcr(file, setLabel) {
       body: JSON.stringify({
         contents: [{ parts: [
           { inline_data: { mime_type: "image/jpeg", data: b64 } },
-          { text: "Transcribe the printed text in this photo of a book page exactly as written, preserving paragraph breaks. Do not correct, translate, or add anything. Output only the transcription. If a word is truly illegible, write [?]." }
-        ]}]
+          { text: "Transcribe the printed text in this photo of a book page exactly as written, preserving paragraph breaks — it is being saved as a cited quotation in the reader's Zotero reference manager. Historical texts must be transcribed faithfully, including period language. Do not correct, translate, or add anything. Output only the transcription. If a word is truly illegible, write [?]." }
+        ]}],
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
       })
     }
   );

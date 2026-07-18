@@ -7,9 +7,12 @@ Zotero Web API. Notes sync to your desktop Zotero automatically via Zotero's own
 
 ## How it works
 
-- **OCR**: iOS's built-in **Live Text** ("scan text" button on the keyboard). Tap the
-  capture box, tap the camera icon above the keyboard, point at the page. Apple's OCR
-  is excellent with printed book text and costs nothing.
+- **OCR**: tap **📷 Scan page with camera** — the camera opens, you shoot the page,
+  and a bundled Tesseract engine (self-hosted in `/ocr`, English + French) reads it
+  in the browser and drops the text into the capture box. First scan downloads
+  ~10 MB of engine/language data, cached thereafter. No cloud OCR service, no cost.
+  (If your keyboard shows Apple's *scan text* button, that works too and is slightly
+  more accurate — but it doesn't appear on all devices, so it's not required.)
 - **Zotero**: the app calls `api.zotero.org` directly from Safari (Zotero's API allows
   browser access). It searches your library, then either appends to the item's
   **"Captured Quotes"** note or creates a new child note, with your tags and `p. N`.
@@ -42,8 +45,8 @@ a firewall rule for private networks.
 1. Tap the ZotSnap icon.
 2. Pick the book (it remembers the last one — great for long reading sessions;
    the search box also lists recently modified items).
-3. Tap the capture box → tap the **scan text** camera button on the keyboard →
-   point at the page → Insert. Scan multiple passages if you want.
+3. Tap **📷 Scan page with camera** → shoot the page → the text appears in the box
+   (each scan appends, so multi-page passages are fine). Skim for OCR slips.
 4. Optional: tap **𝐁 Bold phrases**, then just tap words — or drag a finger across a
    phrase — to bold the important bits (no iOS text selection). Tap again to undo,
    **Done** to keep. Bolding shows as `**markers**` in the text and becomes real
@@ -61,4 +64,7 @@ a firewall rule for private networks.
 
 ## Files
 
-- `index.html` — the entire app (no build step, no dependencies).
+- `index.html` — the entire app (no build step).
+- `ocr/` — self-hosted Tesseract.js v6 engine + `eng`/`fra` fast traineddata.
+- `sw.js` — service worker (offline app shell + caches OCR assets after first use).
+- `host/` — optional LAN hosting + QR generation (not needed for the public site).

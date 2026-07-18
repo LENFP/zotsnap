@@ -119,6 +119,12 @@
   #toast.show { transform: translateX(-50%) translateY(0); }
   #toast.err { background: var(--err); color: #fff; }
   .hidden { display: none !important; }
+  .btn-scan {
+    width: 100%; margin-bottom: 12px; padding: 15px 16px; font-size: 1.02rem;
+    background: color-mix(in srgb, var(--accent) 12%, var(--card));
+    border: 1.5px dashed var(--accent); color: var(--ink); border-radius: 12px;
+  }
+  .btn-scan:disabled { opacity: 0.75; }
   /* bold word-tap mode */
   #boldview {
     background: var(--bg); border: 1px solid var(--accent); border-radius: 10px;
@@ -175,15 +181,17 @@
 
   <!-- Capture -->
   <div class="card">
+    <button class="btn-scan" id="btn-photo">📷 Scan page with camera</button>
+    <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden">
     <div class="topline">
       <label class="field-label" for="quote">Captured text</label>
       <button class="btn-ghost" id="btn-boldmode" style="margin-top:-6px">𝐁 Bold phrases</button>
     </div>
-    <textarea id="quote" placeholder="Tap here, then tap the scan-text button (⌷ camera icon) on your keyboard and point at the page…"></textarea>
+    <textarea id="quote" placeholder="Scanned text lands here — you can also type, paste, or scan several pages in a row…"></textarea>
     <div id="boldview" class="hidden">
       <div id="boldwords"></div>
     </div>
-    <div class="hint" id="quote-hint">Tip: after tapping in this box, iOS shows a <b>scan text</b> button on the keyboard — it OCRs the page live with your camera. You can scan several passages in a row; “Insert” adds them here.</div>
+    <div class="hint" id="quote-hint">Fill the frame with the page, keep it flat, good light. Each scan appends here — check for OCR slips before saving. (First scan downloads the reader, ~10&nbsp;MB, then it's cached.)</div>
   </div>
 
   <!-- Page + tags -->
@@ -428,6 +436,95 @@ function rememberTags(tags) {
   saveJSON("zotsnap-tags", recent.slice(0, 20));
 }
 
+/* ---------- camera OCR ----------
+   Bundled Tesseract (self-hosted in /ocr, eng+fra). Loaded lazily on first
+   scan; the service worker caches it after that. */
+let tessLibPromise = null;
+let ocrWorkerPromise = null;
+let ocrProgressCb = null;
+
+function loadTesseractLib() {
+  if (window.Tesseract) return Promise.resolve();
+  if (!tessLibPromise) {
+    tessLibPromise = new Promise((ok, bad) => {
+      const s = document.createElement("script");
+      s.src = "ocr/tesseract.min.js";
+      s.onload = ok;
+      s.onerror = () => { tessLibPromise = null; bad(new Error("couldn't load the OCR engine — check connection")); };
+      document.head.appendChild(s);
+    });
+  }
+  return tessLibPromise;
+}
+
+function getOcrWorker() {
+  if (!ocrWorkerPromise) {
+    const base = new URL("ocr/", location.href).href.replace(/\/$/, "");
+    ocrWorkerPromise = loadTesseractLib().then(() =>
+      Tesseract.createWorker("eng+fra", 1, {
+        workerPath: base + "/worker.min.js",
+        corePath: base,
+        langPath: base,
+        logger: m => { if (ocrProgressCb) ocrProgressCb(m); }
+      })
+    ).catch(e => { ocrWorkerPromise = null; throw e; });
+  }
+  return ocrWorkerPromise;
+}
+
+async function fileToDrawable(file) {
+  try {
+    return await createImageBitmap(file);
+  } catch (e) {
+    return await new Promise((ok, bad) => {
+      const img = new Image();
+      img.onload = () => ok(img);
+      img.onerror = () => bad(new Error("couldn't read that photo"));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+}
+
+async function downscale(file, maxDim) {
+  const src = await fileToDrawable(file);
+  const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+  const scale = Math.min(1, maxDim / Math.max(w0, h0));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(w0 * scale);
+  canvas.height = Math.round(h0 * scale);
+  canvas.getContext("2d").drawImage(src, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+async function photoOcr(file) {
+  const btn = $("btn-photo");
+  btn.disabled = true;
+  const setLabel = t => { btn.innerHTML = '<span class="spin"></span>' + t; };
+  setLabel("Loading reader…");
+  try {
+    ocrProgressCb = m => {
+      if (m.status === "recognizing text") setLabel("Reading page… " + Math.round((m.progress || 0) * 100) + "%");
+    };
+    const worker = await getOcrWorker();
+    setLabel("Reading page…");
+    const canvas = await downscale(file, 2000);
+    const { data } = await worker.recognize(canvas);
+    const text = (data.text || "").trim();
+    if (!text) { toast("No text found — get closer, fill the frame, add light", true); return; }
+    const cur = $("quote").value.trim();
+    $("quote").value = (cur ? cur + "\n\n" : "") + text;
+    updateSaveState();
+    toast("✓ Page read — skim it for OCR slips, then save");
+  } catch (e) {
+    toast("⚠️ Scan failed: " + e.message, true);
+  } finally {
+    ocrProgressCb = null;
+    btn.disabled = false;
+    btn.textContent = "📷 Scan page with camera";
+    $("photo-input").value = "";
+  }
+}
+
 /* ---------- bold word-tap mode ----------
    Tap a word or drag a finger across a phrase to bold it — no iOS text
    selection involved. Bolding round-trips as **markers** in the textarea
@@ -661,6 +758,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-connect").addEventListener("click", connect);
   $("apikey").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
   $("btn-change").addEventListener("click", changeBook);
+  $("btn-photo").addEventListener("click", () => $("photo-input").click());
+  $("photo-input").addEventListener("change", e => {
+    if (e.target.files && e.target.files[0]) photoOcr(e.target.files[0]);
+  });
   $("btn-boldmode").addEventListener("click", toggleBoldMode);
   wireBoldPainting();
   $("btn-save").addEventListener("click", save);

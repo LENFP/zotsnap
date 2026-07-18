@@ -183,6 +183,10 @@
   <div class="card">
     <button class="btn-scan" id="btn-photo">📷 Scan page with camera</button>
     <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden">
+    <div class="chips" style="margin:0 0 12px">
+      <span class="chip" id="lang-eng">English OCR</span>
+      <span class="chip" id="lang-fra">Français</span>
+    </div>
     <div class="topline">
       <label class="field-label" for="quote">Captured text</label>
       <button class="btn-ghost" id="btn-boldmode" style="margin-top:-6px">𝐁 Bold phrases</button>
@@ -322,15 +326,22 @@ async function connect() {
   }
 }
 
-/* Auto-connect from a "#k=APIKEY" link — the fragment never leaves the device.
-   Lets a personal setup link/QR work out of the box without typing the key. */
+/* Hash payloads — fragments never leave the device.
+   #k=APIKEY  → auto-connect (personal setup link/QR works with zero typing)
+   #t=TEXT    → captured text handed in by the iOS Shortcut (Apple's native OCR) */
+let pendingImportText = null;
 async function tryHashConnect() {
-  const m = location.hash.match(/[#&]k=([A-Za-z0-9]+)/);
-  if (!m) return false;
-  history.replaceState(null, "", location.pathname + location.search);
-  if (cfg && cfg.key === m[1]) return true;
+  const km = location.hash.match(/[#&]k=([A-Za-z0-9]+)/);
+  const tm = location.hash.match(/[#&]t=([^&#]+)/);
+  if (tm) {
+    try { pendingImportText = decodeURIComponent(tm[1].replace(/\+/g, "%20")); }
+    catch (e) { pendingImportText = tm[1]; }
+  }
+  if (km || tm) history.replaceState(null, "", location.pathname + location.search);
+  if (!km) return false;
+  if (cfg && cfg.key === km[1]) return true;
   try {
-    await connectWithKey(m[1]);
+    await connectWithKey(km[1]);
     return true;
   } catch (e) {
     toast("⚠️ Setup link failed: " + e.message, true);
@@ -457,19 +468,78 @@ function loadTesseractLib() {
   return tessLibPromise;
 }
 
+let ocrLang = loadJSON("zotsnap-ocrlang", "eng");
+function setOcrLang(lang) {
+  if (ocrLang !== lang) {
+    ocrLang = lang;
+    saveJSON("zotsnap-ocrlang", lang);
+    if (ocrWorkerPromise) {                  // rebuild worker with the new language
+      ocrWorkerPromise.then(w => w.terminate()).catch(() => {});
+      ocrWorkerPromise = null;
+    }
+  }
+  renderLangChips();
+}
+function renderLangChips() {
+  $("lang-eng").classList.toggle("on", ocrLang === "eng");
+  $("lang-fra").classList.toggle("on", ocrLang === "fra");
+}
+
 function getOcrWorker() {
   if (!ocrWorkerPromise) {
     const base = new URL("ocr/", location.href).href.replace(/\/$/, "");
     ocrWorkerPromise = loadTesseractLib().then(() =>
-      Tesseract.createWorker("eng+fra", 1, {
+      Tesseract.createWorker(ocrLang, 1, {
         workerPath: base + "/worker.min.js",
         corePath: base,
         langPath: base,
         logger: m => { if (ocrProgressCb) ocrProgressCb(m); }
       })
-    ).catch(e => { ocrWorkerPromise = null; throw e; });
+    ).then(async w => {
+      await w.setParameters({ user_defined_dpi: "300" });
+      return w;
+    }).catch(e => { ocrWorkerPromise = null; throw e; });
   }
   return ocrWorkerPromise;
+}
+
+/* Adaptive (Bradley) binarization: clean black/white text despite shadows and
+   uneven lighting — the main failure mode of phone photos of book pages. */
+function binarize(canvas) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const gray = new Uint8Array(w * h);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    gray[j] = (d[i] * 77 + d[i + 1] * 151 + d[i + 2] * 28) >> 8;
+  }
+  const W = w + 1;
+  const integ = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += gray[y * w + x];
+      integ[(y + 1) * W + x + 1] = integ[y * W + x + 1] + row;
+    }
+  }
+  const half = Math.max(8, (Math.min(w, h) / 48) | 0);
+  const t = 0.15;
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - half), y1 = Math.min(h - 1, y + half);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - half), x1 = Math.min(w - 1, x + half);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum = integ[(y1 + 1) * W + x1 + 1] - integ[y0 * W + x1 + 1]
+                - integ[(y1 + 1) * W + x0] + integ[y0 * W + x0];
+      const v = gray[y * w + x] * area < sum * (1 - t) ? 0 : 255;
+      const i = (y * w + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
 }
 
 async function fileToDrawable(file) {
@@ -507,7 +577,7 @@ async function photoOcr(file) {
     };
     const worker = await getOcrWorker();
     setLabel("Reading page…");
-    const canvas = await downscale(file, 2000);
+    const canvas = binarize(await downscale(file, 2400));
     const { data } = await worker.recognize(canvas);
     const text = (data.text || "").trim();
     if (!text) { toast("No text found — get closer, fill the frame, add light", true); return; }
@@ -740,6 +810,12 @@ function showMain() {
   $("savebar").classList.remove("hidden");
   $("btn-settings").classList.remove("hidden");
   $("who").textContent = cfg.username ? "→ " + cfg.username : "";
+  if (pendingImportText) {
+    const cur = $("quote").value.trim();
+    $("quote").value = (cur ? cur + "\n\n" : "") + pendingImportText.trim();
+    pendingImportText = null;
+    toast("✓ Text imported — now page number & book");
+  }
   renderTagChips();
   const last = loadJSON("zotsnap-lastbook", null);
   if (last) chooseBook(last);
@@ -762,6 +838,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("photo-input").addEventListener("change", e => {
     if (e.target.files && e.target.files[0]) photoOcr(e.target.files[0]);
   });
+  $("lang-eng").addEventListener("click", () => setOcrLang("eng"));
+  $("lang-fra").addEventListener("click", () => setOcrLang("fra"));
+  renderLangChips();
   $("btn-boldmode").addEventListener("click", toggleBoldMode);
   wireBoldPainting();
   $("btn-save").addEventListener("click", save);

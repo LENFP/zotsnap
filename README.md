@@ -15,25 +15,27 @@ Zotero Web API. Notes sync to your desktop Zotero automatically via Zotero's own
   **"Captured Quotes"** note or creates a new child note, with your tags and `p. N`.
 - **Sync**: Zotero's normal sync brings the note to your PC — nothing to install there.
 
-## Setup (already automated on this PC)
+## Setup (already automated)
 
-The PC hosts the app itself — `host/server.js` serves this folder on port **8420**,
-started silently at every logon by `ZotSnap Server.vbs` in the user Startup folder,
-with a Windows Firewall rule allowing the port on private networks.
+The app is live at **<https://lenfp.github.io/zotsnap/>** (GitHub Pages, repo
+`LENFP/zotsnap`, deployed from `main`). A service worker caches the app shell, so
+once installed it opens instantly and even offline; saving captures needs a
+connection to api.zotero.org.
 
 **On the iPhone (once):** scan **`Desktop\ZotSnap-QR.png`** with the camera. It opens
 the app with the API key embedded in the URL fragment (`#k=…`) — the app validates it,
 stores it in local storage, and strips it from the address bar. Then
 **Share → Add to Home Screen** so it launches full-screen like an app.
 
-Notes:
-- The key lives in `host/zotero-key.txt` (gitignored) and on the phone — nowhere else.
-  A URL fragment is never sent over the network by the browser.
-- If the PC's LAN IP changes, run `python host/make-qr.py` to regenerate the QR.
-- Phone and PC must be on the same Wi-Fi and the PC awake **to load the app**;
-  captures then talk straight to api.zotero.org.
-- To host it publicly instead (works away from home): push to GitHub Pages —
-  **without** the key file — and open `https://<you>.github.io/zotsnap/#k=<key>` once.
+Key handling:
+- The key lives in `host/zotero-key.txt` (**gitignored — never commit or publish it**)
+  and in the phone's local storage — nowhere else. URL fragments are never sent over
+  the network. `host/make-qr.py` regenerates the Desktop QR
+  (`host/public-url.txt` selects the public URL; delete it to fall back to LAN).
+
+Fallback LAN hosting (also set up, optional): `host/server.js` serves this folder on
+port 8420, auto-started at logon via `ZotSnap Server.vbs` in the Startup folder, with
+a firewall rule for private networks.
 
 ## Using it
 
@@ -42,8 +44,12 @@ Notes:
    the search box also lists recently modified items).
 3. Tap the capture box → tap the **scan text** camera button on the keyboard →
    point at the page → Insert. Scan multiple passages if you want.
-4. Enter page number, tap tag chips (it remembers your recent tags) or type new ones.
-5. **Add to Zotero.** Done — text box clears, book stays selected for the next capture.
+4. Optional: tap **𝐁 Bold phrases**, then just tap words — or drag a finger across a
+   phrase — to bold the important bits (no iOS text selection). Tap again to undo,
+   **Done** to keep. Bolding shows as `**markers**` in the text and becomes real
+   bold in the Zotero note.
+5. Enter page number, tap tag chips (it remembers your recent tags) or type new ones.
+6. **Add to Zotero.** Done — text box clears, book stays selected for the next capture.
 
 ### Options
 

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ZotSnap">
+<title>ZotSnap — book page to Zotero note</title>
+<style>
+  :root {
+    --bg: #f5f4f0;
+    --card: #ffffff;
+    --ink: #1c1b18;
+    --muted: #6f6b60;
+    --line: #e3e0d8;
+    --accent: #b5442c;
+    --accent-ink: #ffffff;
+    --ok: #2c7a3f;
+    --err: #b5442c;
+    --chip: #efece4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16150f;
+      --card: #201f18;
+      --ink: #eae7de;
+      --muted: #9b968a;
+      --line: #33312a;
+      --accent: #d96a4e;
+      --accent-ink: #1c120e;
+      --chip: #2b2a22;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html { font-size: 17px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--ink);
+    padding: max(env(safe-area-inset-top), 12px) 14px calc(env(safe-area-inset-bottom) + 90px);
+    max-width: 620px; margin: 0 auto;
+  }
+  h1 { font-size: 1.25rem; margin: 6px 2px 14px; letter-spacing: -0.01em; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 0.8rem; margin-left: 6px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; margin-bottom: 12px;
+  }
+  label.field-label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  input[type=text], input[type=password], input[type=search], textarea {
+    width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    -webkit-appearance: none; appearance: none;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  textarea { min-height: 150px; line-height: 1.45; resize: vertical; }
+  .hint { font-size: 0.8rem; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .row .narrow { flex: 0 0 34%; }
+  button {
+    font: inherit; font-weight: 600; border: none; border-radius: 12px;
+    padding: 13px 16px; cursor: pointer; touch-action: manipulation;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); width: 100%; font-size: 1.05rem; }
+  .btn-primary:disabled { opacity: 0.45; }
+  .btn-ghost { background: transparent; color: var(--accent); padding: 8px 10px; font-size: 0.85rem; }
+  .savebar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 10px 14px calc(env(safe-area-inset-bottom) + 10px);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  .savebar .inner { max-width: 620px; margin: 0 auto; }
+  /* Book picker */
+  .book-selected {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .book-selected .info { flex: 1; min-width: 0; }
+  .book-selected .title { font-weight: 600; line-height: 1.3; }
+  .book-selected .meta { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+  .results { margin-top: 8px; border-top: 1px solid var(--line); }
+  .result {
+    padding: 11px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .result .title { font-weight: 550; line-height: 1.3; }
+  .result .meta { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .result:active { background: var(--chip); }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 12px; font-size: 0.82rem; color: var(--ink); cursor: pointer;
+  }
+  .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .toggle-row .lbl { font-size: 0.92rem; }
+  .toggle-row .sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .switch { position: relative; width: 50px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 100%; height: 100%; position: absolute; z-index: 2; margin: 0; }
+  .switch .track {
+    position: absolute; inset: 0; background: var(--chip); border: 1px solid var(--line);
+    border-radius: 999px; transition: background 0.15s;
+  }
+  .switch .knob {
+    position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.15s;
+  }
+  .switch input:checked ~ .track { background: var(--ok); }
+  .switch input:checked ~ .knob { transform: translateX(20px); }
+  #toast {
+    position: fixed; top: max(env(safe-area-inset-top), 12px); left: 50%;
+    transform: translateX(-50%) translateY(-160%); transition: transform 0.25s ease;
+    background: var(--ink); color: var(--bg); padding: 11px 18px; border-radius: 999px;
+    font-size: 0.9rem; font-weight: 550; z-index: 50; max-width: 90vw; text-align: center;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.err { background: var(--err); color: #fff; }
+  .hidden { display: none !important; }
+  .setup-note { font-size: 0.86rem; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
+  .setup-note a { color: var(--accent); }
+  .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid currentColor;
+    border-top-color: transparent; border-radius: 50%; animation: sp 0.7s linear infinite;
+    vertical-align: -2px; margin-right: 6px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .topline { display: flex; align-items: baseline; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<div class="topline">
+  <h1>📚 ZotSnap <small id="who"></small></h1>
+  <button class="btn-ghost hidden" id="btn-settings">Settings</button>
+</div>
+
+<!-- ============ SETUP ============ -->
+<section id="setup" class="hidden">
+  <div class="card">
+    <p class="setup-note">
+      Connect your Zotero account once. Create an API key at
+      <a href="https://www.zotero.org/settings/keys/new" target="_blank" rel="noopener">zotero.org/settings/keys/new</a>
+      — check <b>“Allow library access”</b> and <b>“Allow write access”</b>, then paste the key below.
+      It is stored only on this device.
+    </p>
+    <label class="field-label" for="apikey">Zotero API key</label>
+    <input type="password" id="apikey" autocomplete="off" autocapitalize="off" placeholder="e.g. P9NiFoyLeZu2bZNvvuQPDWsd">
+    <div class="hint" id="setup-msg"></div>
+    <div style="margin-top:12px">
+      <button class="btn-primary" id="btn-connect">Connect</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MAIN ============ -->
+<section id="main" class="hidden">
+
+  <!-- Book picker -->
+  <div class="card" id="picker-card">
+    <div id="book-chosen" class="book-selected hidden">
+      <div class="info">
+        <div class="title" id="chosen-title"></div>
+        <div class="meta" id="chosen-meta"></div>
+      </div>
+      <button class="btn-ghost" id="btn-change">Change</button>
+    </div>
+    <div id="book-search">
+      <label class="field-label" for="q">Book / source</label>
+      <input type="search" id="q" placeholder="Search your Zotero library…" autocomplete="off" autocapitalize="off">
+      <div class="results" id="results"></div>
+    </div>
+  </div>
+
+  <!-- Capture -->
+  <div class="card">
+    <label class="field-label" for="quote">Captured text</label>
+    <textarea id="quote" placeholder="Tap here, then tap the scan-text button (⌷ camera icon) on your keyboard and point at the page…"></textarea>
+    <div class="hint">Tip: after tapping in this box, iOS shows a <b>scan text</b> button on the keyboard — it OCRs the page live with your camera. You can scan several passages in a row; “Insert” adds them here.</div>
+  </div>
+
+  <!-- Page + tags -->
+  <div class="card">
+    <div class="row">
+      <div class="narrow">
+        <label class="field-label" for="page">Page</label>
+        <input type="text" id="page" inputmode="numeric" placeholder="123 or 12–14" autocomplete="off">
+      </div>
+      <div>
+        <label class="field-label" for="tags">Tags (comma-separated)</label>
+        <input type="text" id="tags" placeholder="economy, chapter 3" autocomplete="off" autocapitalize="off">
+      </div>
+    </div>
+    <div class="chips" id="tag-chips"></div>
+  </div>
+
+  <!-- Options -->
+  <div class="card toggle-row">
+    <div>
+      <div class="lbl">One “Captured Quotes” note per book</div>
+      <div class="sub">Appends to the existing note if the book already has one; off = a new note per capture.</div>
+    </div>
+    <span class="switch">
+      <input type="checkbox" id="append-mode" checked>
+      <span class="track"></span><span class="knob"></span>
+    </span>
+  </div>
+
+</section>
+
+<div class="savebar hidden" id="savebar">
+  <div class="inner">
+    <button class="btn-primary" id="btn-save">Add to Zotero</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const API = "https://api.zotero.org";
+const $ = id => document.getElementById(id);
+
+let cfg = null;           // { key, userID, username }
+let chosen = null;        // { key, title, meta }
+let searchTimer = null;
+let saving = false;
+
+/* ---------- storage ---------- */
+function loadCfg()  { try { cfg = JSON.parse(localStorage.getItem("zotsnap-cfg")); } catch (e) { cfg = null; } }
+function saveCfg()  { localStorage.setItem("zotsnap-cfg", JSON.stringify(cfg)); }
+function loadJSON(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }
+function saveJSON(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+
+/* ---------- api ---------- */
+async function zfetch(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: {
+      "Zotero-API-Version": "3",
+      "Zotero-API-Key": cfg.key,
+      ...(opts.headers || {})
+    }
+  });
+  if (!res.ok && res.status !== 412) {
+    const body = await res.text().catch(() => "");
+    throw new Error("Zotero API " + res.status + (body ? ": " + body.slice(0, 200) : ""));
+  }
+  return res;
+}
+
+/* ---------- toast ---------- */
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.toggle("err", !!isErr);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), isErr ? 5000 : 2600);
+}
+
+/* ---------- setup ---------- */
+async function connectWithKey(key) {
+  const res = await fetch(API + "/keys/current", {
+    headers: { "Zotero-API-Version": "3", "Zotero-API-Key": key }
+  });
+  if (!res.ok) throw new Error(res.status === 403 ? "Key not recognized — double-check it." : "Zotero returned " + res.status);
+  const info = await res.json();
+  const acc = info.access && info.access.user;
+  if (!acc || !acc.library) throw new Error("This key has no library access. Create one with “Allow library access”.");
+  if (!acc.write) throw new Error("This key is read-only. Create one with “Allow write access”.");
+  cfg = { key, userID: info.userID, username: info.username || "" };
+  saveCfg();
+}
+
+async function connect() {
+  const key = $("apikey").value.trim();
+  if (!key) return;
+  const btn = $("btn-connect");
+  btn.disabled = true;
+  $("setup-msg").textContent = "Checking key…";
+  try {
+    await connectWithKey(key);
+    $("setup-msg").textContent = "";
+    showMain();
+  } catch (e) {
+    $("setup-msg").textContent = "⚠️ " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* Auto-connect from a "#k=APIKEY" link — the fragment never leaves the device.
+   Lets a personal setup link/QR work out of the box without typing the key. */
+async function tryHashConnect() {
+  const m = location.hash.match(/[#&]k=([A-Za-z0-9]+)/);
+  if (!m) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (cfg && cfg.key === m[1]) return true;
+  try {
+    await connectWithKey(m[1]);
+    return true;
+  } catch (e) {
+    toast("⚠️ Setup link failed: " + e.message, true);
+    return false;
+  }
+}
+
+/* ---------- book search ---------- */
+function creatorLine(it) {
+  const m = it.meta || {};
+  const d = it.data || {};
+  const bits = [];
+  if (m.creatorSummary) bits.push(m.creatorSummary);
+  if (m.parsedDate) bits.push(m.parsedDate.slice(0, 4));
+  else if (d.date) bits.push(String(d.date).slice(0, 4));
+  bits.push(d.itemType);
+  return bits.filter(Boolean).join(" · ");
+}
+
+async function runSearch(q) {
+  const qs = q
+    ? "q=" + encodeURIComponent(q) + "&qmode=titleCreatorYear&sort=title"
+    : "sort=dateModified&direction=desc";
+  const res = await zfetch("/users/" + cfg.userID + "/items/top?" + qs + "&limit=15&format=json");
+  const items = await res.json();
+  renderResults(items, q);
+}
+
+function renderResults(items, q) {
+  const box = $("results");
+  box.innerHTML = "";
+  if (!items.length) {
+    box.innerHTML = '<div class="hint" style="padding:10px 4px">' + (q ? "No matches." : "Library is empty.") + "</div>";
+    return;
+  }
+  if (!q) {
+    const h = document.createElement("div");
+    h.className = "hint"; h.style.padding = "8px 4px 0";
+    h.textContent = "Recently modified:";
+    box.appendChild(h);
+  }
+  for (const it of items) {
+    const d = it.data || {};
+    if (d.itemType === "attachment" || d.itemType === "note") continue;
+    const div = document.createElement("div");
+    div.className = "result";
+    const t = document.createElement("div");
+    t.className = "title"; t.textContent = d.title || "(untitled)";
+    const m = document.createElement("div");
+    m.className = "meta"; m.textContent = creatorLine(it);
+    div.append(t, m);
+    div.addEventListener("click", () => chooseBook({ key: it.key, title: d.title || "(untitled)", meta: creatorLine(it) }));
+    box.appendChild(div);
+  }
+}
+
+function chooseBook(b) {
+  chosen = b;
+  saveJSON("zotsnap-lastbook", b);
+  $("chosen-title").textContent = b.title;
+  $("chosen-meta").textContent = b.meta;
+  $("book-chosen").classList.remove("hidden");
+  $("book-search").classList.add("hidden");
+  updateSaveState();
+}
+
+function changeBook() {
+  $("book-chosen").classList.add("hidden");
+  $("book-search").classList.remove("hidden");
+  $("q").focus();
+  runSearch($("q").value.trim()).catch(() => {});
+}
+
+/* ---------- tags ---------- */
+function currentTags() {
+  return $("tags").value.split(",").map(s => s.trim()).filter(Boolean);
+}
+function renderTagChips() {
+  const recent = loadJSON("zotsnap-tags", []);
+  const box = $("tag-chips");
+  box.innerHTML = "";
+  const active = new Set(currentTags().map(t => t.toLowerCase()));
+  for (const tag of recent.slice(0, 10)) {
+    const c = document.createElement("span");
+    c.className = "chip" + (active.has(tag.toLowerCase()) ? " on" : "");
+    c.textContent = tag;
+    c.addEventListener("click", () => {
+      const tags = currentTags();
+      const i = tags.findIndex(t => t.toLowerCase() === tag.toLowerCase());
+      if (i >= 0) tags.splice(i, 1); else tags.push(tag);
+      $("tags").value = tags.join(", ");
+      renderTagChips();
+    });
+    box.appendChild(c);
+  }
+}
+function rememberTags(tags) {
+  let recent = loadJSON("zotsnap-tags", []);
+  for (const t of tags) {
+    recent = recent.filter(x => x.toLowerCase() !== t.toLowerCase());
+    recent.unshift(t);
+  }
+  saveJSON("zotsnap-tags", recent.slice(0, 20));
+}
+
+/* ---------- note building ---------- */
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function quoteToHtml(raw) {
+  // de-hyphenate line-broken words, collapse single newlines, keep blank lines as paragraphs
+  const paras = raw.trim()
+    .replace(/-\n(?=[a-zà-ÿ])/g, "")
+    .split(/\n{2,}/)
+    .map(p => p.replace(/\n/g, " ").replace(/[ \t]{2,}/g, " ").trim())
+    .filter(Boolean)
+    .map(p => "<p>" + escHtml(p) + "</p>")
+    .join("");
+  return "<blockquote>" + paras + "</blockquote>";
+}
+function buildBlock(text, page) {
+  const today = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const head = (page ? "<strong>p. " + escHtml(page) + "</strong> · " : "") + '<span style="color:#888">' + today + "</span>";
+  return "<p>" + head + "</p>" + quoteToHtml(text);
+}
+const CONTAINER_HEAD = "<h1>Captured Quotes</h1>";
+
+/* ---------- save ---------- */
+async function findContainerNote() {
+  const res = await zfetch("/users/" + cfg.userID + "/items/" + chosen.key + "/children?itemType=note&limit=100&format=json");
+  const notes = await res.json();
+  return notes.find(n => (n.data.note || "").slice(0, 200).includes("Captured Quotes")) || null;
+}
+
+async function save() {
+  if (saving) return;
+  const text = $("quote").value.trim();
+  const page = $("page").value.trim();
+  const tags = currentTags();
+  if (!chosen) { toast("Pick a book first", true); return; }
+  if (!text)   { toast("Nothing captured yet", true); return; }
+
+  saving = true;
+  const btn = $("btn-save");
+  const oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Saving…';
+
+  try {
+    const block = buildBlock(text, page);
+    if ($("append-mode").checked) {
+      let existing = await findContainerNote();
+      if (existing) {
+        await appendToNote(existing, block, tags);
+      } else {
+        await createNote(CONTAINER_HEAD + block, tags);
+      }
+    } else {
+      await createNote(block, tags);
+    }
+    rememberTags(tags);
+    renderTagChips();
+    $("quote").value = "";
+    $("page").value = "";
+    toast("✓ Added to “" + chosen.title.slice(0, 40) + (chosen.title.length > 40 ? "…" : "") + "”");
+  } catch (e) {
+    toast("⚠️ " + e.message, true);
+  } finally {
+    saving = false;
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+    updateSaveState();
+  }
+}
+
+async function createNote(noteHtml, tags) {
+  const res = await zfetch("/users/" + cfg.userID + "/items", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify([{
+      itemType: "note",
+      parentItem: chosen.key,
+      note: noteHtml,
+      tags: tags.map(t => ({ tag: t }))
+    }])
+  });
+  const out = await res.json();
+  if (out.failed && Object.keys(out.failed).length) {
+    throw new Error(out.failed[Object.keys(out.failed)[0]].message || "Zotero rejected the note");
+  }
+}
+
+async function appendToNote(existing, block, tags, retried) {
+  const mergedTags = [...existing.data.tags];
+  for (const t of tags) {
+    if (!mergedTags.some(x => x.tag.toLowerCase() === t.toLowerCase())) mergedTags.push({ tag: t });
+  }
+  const res = await zfetch("/users/" + cfg.userID + "/items/" + existing.key, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "If-Unmodified-Since-Version": String(existing.version)
+    },
+    body: JSON.stringify({ note: existing.data.note + "<hr/>" + block, tags: mergedTags })
+  });
+  if (res.status === 412) {
+    if (retried) throw new Error("Note changed while saving — try again");
+    const fresh = await findContainerNote();
+    if (!fresh) { await createNote(CONTAINER_HEAD + block, tags); return; }
+    await appendToNote(fresh, block, tags, true);
+  }
+}
+
+/* ---------- ui glue ---------- */
+function updateSaveState() {
+  $("btn-save").disabled = !(chosen && $("quote").value.trim());
+}
+
+function showMain() {
+  $("setup").classList.add("hidden");
+  $("main").classList.remove("hidden");
+  $("savebar").classList.remove("hidden");
+  $("btn-settings").classList.remove("hidden");
+  $("who").textContent = cfg.username ? "→ " + cfg.username : "";
+  renderTagChips();
+  const last = loadJSON("zotsnap-lastbook", null);
+  if (last) chooseBook(last);
+  else runSearch("").catch(e => toast("⚠️ " + e.message, true));
+  updateSaveState();
+}
+
+function showSetup() {
+  $("main").classList.add("hidden");
+  $("savebar").classList.add("hidden");
+  $("btn-settings").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  $("btn-connect").addEventListener("click", connect);
+  $("apikey").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+  $("btn-change").addEventListener("click", changeBook);
+  $("btn-save").addEventListener("click", save);
+  $("quote").addEventListener("input", updateSaveState);
+  $("tags").addEventListener("input", renderTagChips);
+  $("q").addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => runSearch($("q").value.trim()).catch(e => toast("⚠️ " + e.message, true)), 300);
+  });
+  $("q").addEventListener("focus", () => {
+    if (!$("results").children.length) runSearch($("q").value.trim()).catch(() => {});
+  });
+  $("btn-settings").addEventListener("click", () => {
+    if (confirm("Disconnect this device from Zotero? (Your library is untouched — this only clears the saved API key here.)")) {
+      localStorage.removeItem("zotsnap-cfg");
+      cfg = null;
+      showSetup();
+    }
+  });
+
+  loadCfg();
+  tryHashConnect().then(ok => {
+    if (ok || (cfg && cfg.key)) showMain(); else showSetup();
+  });
+
+  // offline app-shell caching (https only; no-op on LAN http)
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+});
+</script>
+</body>
+</html>

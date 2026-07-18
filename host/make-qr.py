@@ -31,8 +31,11 @@ key = KEY_FILE.read_text().strip() if KEY_FILE.exists() else ""
 if not key:
     sys.exit(f"Put the Zotero API key in {KEY_FILE} first.")
 
+GEMINI_FILE = Path(__file__).with_name("gemini-key.txt")
+gemini = GEMINI_FILE.read_text().strip() if GEMINI_FILE.exists() else ""
+
 base = URL_FILE.read_text().strip().rstrip("/") + "/" if URL_FILE.exists() else f"http://{lan_ip()}:{PORT}/"
-url = f"{base}#k={key}"
+url = f"{base}#k={key}" + (f"&g={gemini}" if gemini else "")
 segno.make(url, error="m").save(str(OUT), scale=10, border=3)
 print(f"QR for {url}\nsaved to {OUT}")
 try:

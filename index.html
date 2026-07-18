@@ -183,7 +183,8 @@
   <div class="card">
     <button class="btn-scan" id="btn-photo">📷 Scan page with camera</button>
     <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden">
-    <div class="chips" style="margin:0 0 12px">
+    <div class="chips" style="margin:0 0 12px; align-items:center">
+      <button class="btn-ghost" id="btn-ai" style="padding:4px 8px">⚡ Enable AI OCR…</button>
       <span class="chip" id="lang-eng">English OCR</span>
       <span class="chip" id="lang-fra">Français</span>
     </div>
@@ -333,11 +334,13 @@ let pendingImportText = null;
 async function tryHashConnect() {
   const km = location.hash.match(/[#&]k=([A-Za-z0-9]+)/);
   const tm = location.hash.match(/[#&]t=([^&#]+)/);
+  const gm = location.hash.match(/[#&]g=([A-Za-z0-9_\-]+)/);
   if (tm) {
     try { pendingImportText = decodeURIComponent(tm[1].replace(/\+/g, "%20")); }
     catch (e) { pendingImportText = tm[1]; }
   }
-  if (km || tm) history.replaceState(null, "", location.pathname + location.search);
+  if (gm) { geminiKey = gm[1]; localStorage.setItem("zotsnap-gk", geminiKey); }
+  if (km || tm || gm) history.replaceState(null, "", location.pathname + location.search);
   if (!km) return false;
   if (cfg && cfg.key === km[1]) return true;
   try {
@@ -445,6 +448,58 @@ function rememberTags(tags) {
     recent.unshift(t);
   }
   saveJSON("zotsnap-tags", recent.slice(0, 20));
+}
+
+/* ---------- AI OCR (Gemini, free-tier API key) ----------
+   Frontier vision model; quality in the same class as Apple Live Text.
+   Used automatically when a key is set; Tesseract is the fallback. */
+let geminiKey = localStorage.getItem("zotsnap-gk") || "";
+
+function renderAiButton() {
+  $("btn-ai").textContent = geminiKey ? "⚡ AI OCR on" : "⚡ Enable AI OCR…";
+  $("btn-photo").textContent = geminiKey ? "📷 Scan page (AI)" : "📷 Scan page with camera";
+}
+
+function promptAiKey() {
+  const v = prompt(
+    geminiKey
+      ? "AI OCR is on. Paste a new Google AI Studio key to replace it, or clear the box and press OK to turn AI OCR off."
+      : "Paste a free Google AI Studio API key (get one at aistudio.google.com/apikey — no billing needed). Scans will be read by Gemini instead of the built-in engine.",
+    geminiKey
+  );
+  if (v === null) return;
+  geminiKey = v.trim();
+  if (geminiKey) localStorage.setItem("zotsnap-gk", geminiKey);
+  else localStorage.removeItem("zotsnap-gk");
+  renderAiButton();
+  toast(geminiKey ? "✓ AI OCR enabled" : "AI OCR off — using built-in engine");
+}
+
+async function geminiOcr(file, setLabel) {
+  setLabel("AI reading page…");
+  const canvas = await downscale(file, 1600);
+  const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + encodeURIComponent(geminiKey),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { inline_data: { mime_type: "image/jpeg", data: b64 } },
+          { text: "Transcribe the printed text in this photo of a book page exactly as written, preserving paragraph breaks. Do not correct, translate, or add anything. Output only the transcription. If a word is truly illegible, write [?]." }
+        ]}]
+      })
+    }
+  );
+  if (!res.ok) {
+    throw new Error(res.status === 429 ? "free AI quota used up for today" :
+                    res.status === 400 || res.status === 403 ? "AI key rejected — check it in ⚡" :
+                    "AI OCR error " + res.status);
+  }
+  const out = await res.json();
+  const parts = (((out.candidates || [])[0] || {}).content || {}).parts || [];
+  return parts.map(p => p.text || "").join("").trim();
 }
 
 /* ---------- camera OCR ----------
@@ -570,16 +625,27 @@ async function photoOcr(file) {
   const btn = $("btn-photo");
   btn.disabled = true;
   const setLabel = t => { btn.innerHTML = '<span class="spin"></span>' + t; };
-  setLabel("Loading reader…");
+  setLabel("Reading…");
   try {
-    ocrProgressCb = m => {
-      if (m.status === "recognizing text") setLabel("Reading page… " + Math.round((m.progress || 0) * 100) + "%");
-    };
-    const worker = await getOcrWorker();
-    setLabel("Reading page…");
-    const canvas = binarize(await downscale(file, 2400));
-    const { data } = await worker.recognize(canvas);
-    const text = (data.text || "").trim();
+    let text = "";
+    if (geminiKey) {
+      try {
+        text = await geminiOcr(file, setLabel);
+      } catch (e) {
+        toast("⚠️ " + e.message + " — trying built-in engine", true);
+      }
+    }
+    if (!text) {
+      setLabel("Loading reader…");
+      ocrProgressCb = m => {
+        if (m.status === "recognizing text") setLabel("Reading page… " + Math.round((m.progress || 0) * 100) + "%");
+      };
+      const worker = await getOcrWorker();
+      setLabel("Reading page…");
+      const canvas = binarize(await downscale(file, 2400));
+      const { data } = await worker.recognize(canvas);
+      text = (data.text || "").trim();
+    }
     if (!text) { toast("No text found — get closer, fill the frame, add light", true); return; }
     const cur = $("quote").value.trim();
     $("quote").value = (cur ? cur + "\n\n" : "") + text;
@@ -590,7 +656,7 @@ async function photoOcr(file) {
   } finally {
     ocrProgressCb = null;
     btn.disabled = false;
-    btn.textContent = "📷 Scan page with camera";
+    renderAiButton();
     $("photo-input").value = "";
   }
 }
@@ -840,7 +906,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("lang-eng").addEventListener("click", () => setOcrLang("eng"));
   $("lang-fra").addEventListener("click", () => setOcrLang("fra"));
+  $("btn-ai").addEventListener("click", promptAiKey);
   renderLangChips();
+  renderAiButton();
   $("btn-boldmode").addEventListener("click", toggleBoldMode);
   wireBoldPainting();
   $("btn-save").addEventListener("click", save);

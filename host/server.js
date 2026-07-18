@@ -21,35 +21,95 @@ function log(msg) {
   try { fs.appendFileSync(LOG, new Date().toISOString() + " " + msg + "\n"); } catch (e) {}
 }
 
-function claudeOcr(imagePath, cb) {
-  const prompt = "Use the Read tool to view the image file at " + imagePath +
-    " then output ONLY the exact transcription of all printed text in it, " +
-    "preserving paragraph breaks. No preamble, no commentary, no code fences. " +
-    "If a word is truly illegible, write [?].";
-  const CLAUDE = path.join(process.env.APPDATA || "", "npm", "claude.cmd");
+/* Pre-warmed Claude worker: a headless `claude -p` in stream-json mode is
+   spawned ahead of time, so CLI boot happens before a scan arrives. Each scan
+   is one user message carrying the image inline (a single model call, no Read
+   tool round-trip). A worker is used once, then replaced. */
+const CLAUDE = path.join(process.env.APPDATA || "", "npm", "claude.cmd");
+const PROMPT = "Transcribe the printed text in this image exactly as written, " +
+  "preserving paragraph breaks. No preamble, no commentary, no code fences. " +
+  "If a word is truly illegible, write [?].";
+
+let warm = null;
+
+function spawnWorker() {
+  const child = spawn("cmd.exe", ["/c", CLAUDE, "-p",
+    "--model", "haiku",
+    "--input-format", "stream-json",
+    "--output-format", "stream-json",
+    "--verbose",
+    "--strict-mcp-config",
+    "--max-turns", "2"
+  ], { windowsVerbatimArguments: false });
+  const w = { child, err: "", spawnedAt: Date.now() };
+  child.stderr.on("data", d => w.err += d);
+  child.on("error", e => log("worker spawn error: " + e.message));
+  return w;
+}
+
+function takeWorker() {
+  let w = warm;
+  warm = null;
+  if (!w || w.child.exitCode !== null) {
+    if (w) log("warm worker was dead (exit " + w.child.exitCode + "), stderr: " + w.err.slice(0, 500));
+    w = spawnWorker();                      // cold start for this request
+  }
+  setTimeout(() => { if (!warm) warm = spawnWorker(); }, 500);  // re-warm for the next scan
+  return w;
+}
+
+function claudeOcr(jpegBuffer, cb) {
   const started = Date.now();
-  const child = spawn("cmd.exe", ["/c", CLAUDE, "-p", "--model", "haiku", "--allowedTools", "Read", "--max-turns", "4"], {
-    windowsVerbatimArguments: false,
-    timeout: 180000
-  });
-  let out = "", err = "";
-  child.stdout.on("data", d => out += d);
-  child.stderr.on("data", d => err += d);
-  child.on("error", e => { log("OCR spawn error: " + e.message); cb(e.message, null); });
-  child.on("close", code => {
+  const w = takeWorker();
+  const child = w.child;
+  let done = false;
+  let buf = "";
+
+  const finish = (err, text) => {
+    if (done) return;
+    done = true;
+    clearTimeout(killer);
+    try { child.kill(); } catch (e) {}
     const secs = ((Date.now() - started) / 1000).toFixed(1);
-    if (code !== 0) {
-      log("OCR fail (exit " + code + ", " + secs + "s) stderr: " + err.slice(0, 2000) + " stdout: " + out.slice(0, 500));
-      cb(code === null ? "Claude took too long (>3 min) — try again" :
-         "claude exited " + code + (err ? ": " + err.slice(0, 300) : ""), null);
-    } else {
-      log("OCR ok in " + secs + "s, " + out.length + " chars");
-      cb(null, out.trim());
+    if (err) log("OCR fail (" + secs + "s): " + err + " stderr: " + w.err.slice(0, 1500));
+    else log("OCR ok in " + secs + "s (worker age " + ((started - w.spawnedAt) / 1000).toFixed(0) + "s), " + text.length + " chars");
+    cb(err, text);
+  };
+  const killer = setTimeout(() => finish("Claude took too long — try again", null), 150000);
+
+  child.stdout.on("data", d => {
+    buf += d;
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+      if (!line.trim()) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch (e) { continue; }
+      if (msg.type === "result") {
+        if (msg.subtype === "success" && typeof msg.result === "string") finish(null, msg.result.trim());
+        else finish("Claude error: " + (msg.result || msg.subtype || "unknown"), null);
+      }
     }
   });
-  child.stdin.write(prompt);
-  child.stdin.end();
+  child.on("close", code => finish("claude exited " + code, null));
+
+  try {
+    child.stdin.write(JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: jpegBuffer.toString("base64") } },
+          { type: "text", text: PROMPT }
+        ]
+      }
+    }) + "\n");
+  } catch (e) {
+    finish("stdin write failed: " + e.message, null);
+  }
 }
+
+warm = spawnWorker();  // pre-warm at server start
 
 http.createServer((req, res) => {
   if (req.method === "OPTIONS") { res.writeHead(204, CORS); res.end(); return; }
@@ -63,10 +123,7 @@ http.createServer((req, res) => {
       chunks.push(c);
     });
     req.on("end", () => {
-      const tmp = path.join(os.tmpdir(), "zotsnap-scan-" + Date.now() + ".jpg");
-      fs.writeFileSync(tmp, Buffer.concat(chunks));
-      claudeOcr(tmp, (err, text) => {
-        try { fs.unlinkSync(tmp); } catch (e) {}
+      claudeOcr(Buffer.concat(chunks), (err, text) => {
         res.writeHead(err ? 500 : 200, { "Content-Type": "application/json", ...CORS });
         res.end(JSON.stringify(err ? { error: err } : { text }));
       });

@@ -26,9 +26,12 @@ function log(msg) {
    is one user message carrying the image inline (a single model call, no Read
    tool round-trip). A worker is used once, then replaced. */
 const CLAUDE = path.join(process.env.APPDATA || "", "npm", "claude.cmd");
-const PROMPT = "Transcribe the printed text in this image exactly as written, " +
-  "preserving paragraph breaks. No preamble, no commentary, no code fences. " +
-  "If a word is truly illegible, write [?].";
+const PROMPT = "This is a photo of a page from a published book that the user is " +
+  "reading and citing. Acting as their OCR tool, transcribe the printed text " +
+  "exactly as written, preserving paragraph breaks, so it can be saved as a " +
+  "quotation (with author, title, and page citation) in their Zotero reference " +
+  "manager. Output only the transcription — no preamble, no commentary, no code " +
+  "fences. If a word is truly illegible, write [?].";
 const RETRY_PROMPT = "This is a photo of a book page the user is reading; they are " +
   "saving a quotation into their Zotero reference manager as a personal research " +
   "note, with full citation (author, title, page). Acting as their OCR tool, " +

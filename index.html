@@ -173,22 +173,6 @@
 <!-- ============ MAIN ============ -->
 <section id="main" class="hidden">
 
-  <!-- Book picker -->
-  <div class="card" id="picker-card">
-    <div id="book-chosen" class="book-selected hidden">
-      <div class="info">
-        <div class="title" id="chosen-title"></div>
-        <div class="meta" id="chosen-meta"></div>
-      </div>
-      <button class="btn-ghost" id="btn-change">Change</button>
-    </div>
-    <div id="book-search">
-      <label class="field-label" for="q">Book / source</label>
-      <input type="search" id="q" placeholder="Search your Zotero library…" autocomplete="off" autocapitalize="off">
-      <div class="results" id="results"></div>
-    </div>
-  </div>
-
   <!-- Capture -->
   <div class="card">
     <div class="topline">
@@ -215,6 +199,22 @@
       </div>
     </div>
     <div class="chips" id="tag-chips"></div>
+  </div>
+
+  <!-- Book picker -->
+  <div class="card" id="picker-card">
+    <div id="book-chosen" class="book-selected hidden">
+      <div class="info">
+        <div class="title" id="chosen-title"></div>
+        <div class="meta" id="chosen-meta"></div>
+      </div>
+      <button class="btn-ghost" id="btn-change">Change</button>
+    </div>
+    <div id="book-search">
+      <label class="field-label" for="q">Book / source</label>
+      <input type="search" id="q" placeholder="Search your Zotero library…" autocomplete="off" autocapitalize="off">
+      <div class="results" id="results"></div>
+    </div>
   </div>
 
   <!-- Options -->
@@ -553,8 +553,13 @@ async function save() {
   const text = $("quote").value.trim();
   const page = $("page").value.trim();
   const tags = currentTags();
-  if (!chosen) { toast("Pick a book first", true); return; }
   if (!text)   { toast("Nothing captured yet", true); return; }
+  if (!chosen) {
+    toast("Now pick the book it came from ↓", true);
+    $("picker-card").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("q").focus();
+    return;
+  }
 
   saving = true;
   const btn = $("btn-save");
@@ -629,7 +634,7 @@ async function appendToNote(existing, block, tags, retried) {
 
 /* ---------- ui glue ---------- */
 function updateSaveState() {
-  $("btn-save").disabled = !(chosen && $("quote").value.trim());
+  $("btn-save").disabled = !($("quote").value.trim() || boldMode);
 }
 
 function showMain() {

@@ -119,6 +119,23 @@
   #toast.show { transform: translateX(-50%) translateY(0); }
   #toast.err { background: var(--err); color: #fff; }
   .hidden { display: none !important; }
+  /* bold word-tap mode */
+  #boldview {
+    background: var(--bg); border: 1px solid var(--accent); border-radius: 10px;
+    padding: 10px 8px; min-height: 150px;
+  }
+  #boldwords p { margin: 0 0 10px; line-height: 2.0; }
+  #boldwords p:last-child { margin-bottom: 0; }
+  .w {
+    display: inline-block; padding: 1px 4px; margin: 0 0 2px; border-radius: 6px;
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: pan-y;
+  }
+  #boldwords { touch-action: pan-y; }
+  .w.b {
+    font-weight: 750; background: color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
   .setup-note { font-size: 0.86rem; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
   .setup-note a { color: var(--accent); }
   .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid currentColor;
@@ -174,9 +191,15 @@
 
   <!-- Capture -->
   <div class="card">
-    <label class="field-label" for="quote">Captured text</label>
+    <div class="topline">
+      <label class="field-label" for="quote">Captured text</label>
+      <button class="btn-ghost" id="btn-boldmode" style="margin-top:-6px">𝐁 Bold phrases</button>
+    </div>
     <textarea id="quote" placeholder="Tap here, then tap the scan-text button (⌷ camera icon) on your keyboard and point at the page…"></textarea>
-    <div class="hint">Tip: after tapping in this box, iOS shows a <b>scan text</b> button on the keyboard — it OCRs the page live with your camera. You can scan several passages in a row; “Insert” adds them here.</div>
+    <div id="boldview" class="hidden">
+      <div id="boldwords"></div>
+    </div>
+    <div class="hint" id="quote-hint">Tip: after tapping in this box, iOS shows a <b>scan text</b> button on the keyboard — it OCRs the page live with your camera. You can scan several passages in a row; “Insert” adds them here.</div>
   </div>
 
   <!-- Page + tags -->
@@ -405,18 +428,108 @@ function rememberTags(tags) {
   saveJSON("zotsnap-tags", recent.slice(0, 20));
 }
 
+/* ---------- bold word-tap mode ----------
+   Tap a word or drag a finger across a phrase to bold it — no iOS text
+   selection involved. Bolding round-trips as **markers** in the textarea
+   and becomes <strong> in the Zotero note. */
+let boldMode = false;
+let painting = false, paintOn = false;
+const DEFAULT_HINT = null; // captured on first toggle
+
+function enterBoldMode() {
+  const raw = $("quote").value;
+  if (!raw.trim()) { toast("Capture some text first", true); return; }
+  const box = $("boldwords");
+  box.innerHTML = "";
+  for (const p of normalizeParas(raw)) {
+    const pEl = document.createElement("p");
+    let bold = false;
+    for (let word of p.split(" ")) {
+      if (!word) continue;
+      let opens = false, closes = false;
+      while (word.startsWith("**")) { word = word.slice(2); opens = true; }
+      while (word.endsWith("**") && word.length > 2) { word = word.slice(0, -2); closes = true; }
+      if (opens) bold = true;
+      const s = document.createElement("span");
+      s.className = "w" + (bold ? " b" : "");
+      s.textContent = word;
+      pEl.appendChild(s);
+      pEl.appendChild(document.createTextNode(" "));
+      if (closes) bold = false;
+    }
+    box.appendChild(pEl);
+  }
+  $("quote").classList.add("hidden");
+  $("boldview").classList.remove("hidden");
+  $("btn-boldmode").textContent = "✓ Done";
+  $("quote-hint").innerHTML = "<b>Tap a word</b> — or <b>drag across a phrase</b> — to bold it. Tap again to undo.";
+  boldMode = true;
+}
+
+function exitBoldMode() {
+  const paras = [];
+  for (const pEl of $("boldwords").children) {
+    const words = [...pEl.querySelectorAll(".w")];
+    let out = "", run = false;
+    words.forEach((w, i) => {
+      const b = w.classList.contains("b");
+      if (b && !run) { out += "**"; run = true; }
+      out += w.textContent;
+      const nextB = i + 1 < words.length && words[i + 1].classList.contains("b");
+      if (run && (!nextB || i === words.length - 1) && b) { out += "**"; run = false; }
+      out += " ";
+    });
+    paras.push(out.replace(/\*\* \*\*/g, " ").trim());
+  }
+  $("quote").value = paras.join("\n\n");
+  $("boldview").classList.add("hidden");
+  $("quote").classList.remove("hidden");
+  $("btn-boldmode").textContent = "𝐁 Bold phrases";
+  $("quote-hint").innerHTML = window._zsHint;
+  boldMode = false;
+  updateSaveState();
+}
+
+function toggleBoldMode() {
+  if (!window._zsHint) window._zsHint = $("quote-hint").innerHTML;
+  if (boldMode) exitBoldMode(); else enterBoldMode();
+}
+
+function wireBoldPainting() {
+  const box = $("boldwords");
+  box.addEventListener("pointerdown", e => {
+    const w = e.target.closest(".w");
+    if (!w) return;
+    painting = true;
+    paintOn = !w.classList.contains("b");
+    w.classList.toggle("b", paintOn);
+  });
+  box.addEventListener("pointermove", e => {
+    if (!painting) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const w = el && el.closest(".w");
+    if (w) w.classList.toggle("b", paintOn);
+  });
+  for (const ev of ["pointerup", "pointercancel"]) {
+    document.addEventListener(ev, () => { painting = false; });
+  }
+}
+
 /* ---------- note building ---------- */
 function escHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-function quoteToHtml(raw) {
+function normalizeParas(raw) {
   // de-hyphenate line-broken words, collapse single newlines, keep blank lines as paragraphs
-  const paras = raw.trim()
+  return raw.trim()
     .replace(/-\n(?=[a-zà-ÿ])/g, "")
     .split(/\n{2,}/)
     .map(p => p.replace(/\n/g, " ").replace(/[ \t]{2,}/g, " ").trim())
-    .filter(Boolean)
-    .map(p => "<p>" + escHtml(p) + "</p>")
+    .filter(Boolean);
+}
+function quoteToHtml(raw) {
+  const paras = normalizeParas(raw)
+    .map(p => "<p>" + escHtml(p).replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>") + "</p>")
     .join("");
   return "<blockquote>" + paras + "</blockquote>";
 }
@@ -436,6 +549,7 @@ async function findContainerNote() {
 
 async function save() {
   if (saving) return;
+  if (boldMode) exitBoldMode();   // fold tapped bolding back into the text first
   const text = $("quote").value.trim();
   const page = $("page").value.trim();
   const tags = currentTags();
@@ -542,6 +656,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-connect").addEventListener("click", connect);
   $("apikey").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
   $("btn-change").addEventListener("click", changeBook);
+  $("btn-boldmode").addEventListener("click", toggleBoldMode);
+  wireBoldPainting();
   $("btn-save").addEventListener("click", save);
   $("quote").addEventListener("input", updateSaveState);
   $("tags").addEventListener("input", renderTagChips);

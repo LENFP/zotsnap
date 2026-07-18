@@ -450,6 +450,28 @@ function rememberTags(tags) {
   saveJSON("zotsnap-tags", recent.slice(0, 20));
 }
 
+/* ---------- Claude relay OCR ----------
+   POST the photo to the home server's /ocr, which transcribes it with
+   headless Claude Code on the PC (the user's Claude subscription).
+   Auto-active when the app is loaded from the home server itself (http),
+   or from an explicit https relay URL in localStorage "zotsnap-relay". */
+function relayUrl() {
+  const custom = localStorage.getItem("zotsnap-relay");
+  if (custom) return custom.replace(/\/$/, "") + "/ocr";
+  if (location.protocol === "http:") return location.origin + "/ocr";
+  return "";  // https page can't call the http home server (mixed content)
+}
+
+async function relayOcr(file, setLabel) {
+  setLabel("Claude reading page…");
+  const canvas = await downscale(file, 2000);
+  const blob = await new Promise(ok => canvas.toBlob(ok, "image/jpeg", 0.85));
+  const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || out.error) throw new Error(out.error || "Claude relay error " + res.status);
+  return (out.text || "").trim();
+}
+
 /* ---------- AI OCR (Gemini, free-tier API key) ----------
    Frontier vision model; quality in the same class as Apple Live Text.
    Used automatically when a key is set; Tesseract is the fallback. */
@@ -457,7 +479,10 @@ let geminiKey = localStorage.getItem("zotsnap-gk") || "";
 
 function renderAiButton() {
   $("btn-ai").textContent = geminiKey ? "⚡ AI OCR on" : "⚡ Enable AI OCR…";
-  $("btn-photo").textContent = geminiKey ? "📷 Scan page (AI)" : "📷 Scan page with camera";
+  $("btn-photo").textContent =
+    relayUrl() ? "📷 Scan page (Claude)" :
+    geminiKey  ? "📷 Scan page (AI)" :
+                 "📷 Scan page with camera";
 }
 
 function promptAiKey() {
@@ -628,7 +653,14 @@ async function photoOcr(file) {
   setLabel("Reading…");
   try {
     let text = "";
-    if (geminiKey) {
+    if (relayUrl()) {
+      try {
+        text = await relayOcr(file, setLabel);
+      } catch (e) {
+        toast("⚠️ Claude relay: " + e.message + " — trying next engine", true);
+      }
+    }
+    if (!text && geminiKey) {
       try {
         text = await geminiOcr(file, setLabel);
       } catch (e) {

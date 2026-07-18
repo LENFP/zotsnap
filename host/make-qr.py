@@ -34,11 +34,18 @@ if not key:
 GEMINI_FILE = Path(__file__).with_name("gemini-key.txt")
 gemini = GEMINI_FILE.read_text().strip() if GEMINI_FILE.exists() else ""
 
-base = URL_FILE.read_text().strip().rstrip("/") + "/" if URL_FILE.exists() else f"http://{lan_ip()}:{PORT}/"
-url = f"{base}#k={key}" + (f"&g={gemini}" if gemini else "")
-segno.make(url, error="m").save(str(OUT), scale=10, border=3)
-print(f"QR for {url}\nsaved to {OUT}")
-try:
-    subprocess.run(["cmd", "/c", "start", "", str(OUT)], check=False)
-except OSError:
-    pass
+frag = f"#k={key}" + (f"&g={gemini}" if gemini else "")
+targets = {OUT: f"http://{lan_ip()}:{PORT}/{frag}"}
+if URL_FILE.exists():
+    # public QR is the main one; LAN gets its own (Claude-relay OCR works there)
+    targets = {
+        OUT: URL_FILE.read_text().strip().rstrip("/") + "/" + frag,
+        OUT.with_name("ZotSnap-QR-Home.png"): f"http://{lan_ip()}:{PORT}/{frag}",
+    }
+for out, url in targets.items():
+    segno.make(url, error="m").save(str(out), scale=10, border=3)
+    print(f"QR for {url}\nsaved to {out}")
+    try:
+        subprocess.run(["cmd", "/c", "start", "", str(out)], check=False)
+    except OSError:
+        pass

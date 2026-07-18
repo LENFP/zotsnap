@@ -468,7 +468,7 @@ function relayUrl() {
 
 async function relayOcr(file, setLabel) {
   setLabel("Claude reading page…");
-  const canvas = await downscale(file, 2000);
+  const canvas = await downscale(file, 1600);
   const blob = await new Promise(ok => canvas.toBlob(ok, "image/jpeg", 0.85));
   const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob });
   const out = await res.json().catch(() => ({}));

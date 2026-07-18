@@ -16,23 +16,36 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
+const LOG = path.join(__dirname, "server.log");
+function log(msg) {
+  try { fs.appendFileSync(LOG, new Date().toISOString() + " " + msg + "\n"); } catch (e) {}
+}
+
 function claudeOcr(imagePath, cb) {
   const prompt = "Use the Read tool to view the image file at " + imagePath +
     " then output ONLY the exact transcription of all printed text in it, " +
     "preserving paragraph breaks. No preamble, no commentary, no code fences. " +
     "If a word is truly illegible, write [?].";
   const CLAUDE = path.join(process.env.APPDATA || "", "npm", "claude.cmd");
+  const started = Date.now();
   const child = spawn("cmd.exe", ["/c", CLAUDE, "-p", "--model", "haiku", "--allowedTools", "Read", "--max-turns", "4"], {
     windowsVerbatimArguments: false,
-    timeout: 120000
+    timeout: 180000
   });
   let out = "", err = "";
   child.stdout.on("data", d => out += d);
   child.stderr.on("data", d => err += d);
-  child.on("error", e => cb(e.message, null));
+  child.on("error", e => { log("OCR spawn error: " + e.message); cb(e.message, null); });
   child.on("close", code => {
-    if (code !== 0) cb("claude exited " + code + (err ? ": " + err.slice(0, 300) : ""), null);
-    else cb(null, out.trim());
+    const secs = ((Date.now() - started) / 1000).toFixed(1);
+    if (code !== 0) {
+      log("OCR fail (exit " + code + ", " + secs + "s) stderr: " + err.slice(0, 2000) + " stdout: " + out.slice(0, 500));
+      cb(code === null ? "Claude took too long (>3 min) — try again" :
+         "claude exited " + code + (err ? ": " + err.slice(0, 300) : ""), null);
+    } else {
+      log("OCR ok in " + secs + "s, " + out.length + " chars");
+      cb(null, out.trim());
+    }
   });
   child.stdin.write(prompt);
   child.stdin.end();

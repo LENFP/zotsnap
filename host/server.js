@@ -40,9 +40,9 @@ const RETRY_PROMPT = "This is a photo of a book page the user is reading; they a
 
 let warm = null;
 
-function spawnWorker() {
+function spawnWorker(model) {
   const child = spawn("cmd.exe", ["/c", CLAUDE, "-p",
-    "--model", "haiku",
+    "--model", model || "haiku",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
@@ -68,8 +68,10 @@ function takeWorker() {
 
 function looksBlocked(err, text) {
   if (err && /content.?filter|blocked|policy/i.test(err)) return true;
-  return !!(text && text.length < 250 &&
-    /^(I can(’|'|no)?t|I cannot|I(’|')?m (unable|sorry|not able)|I apologize|I won(’|')?t|Output blocked)/i.test(text.trim()));
+  if (!text || text.length >= 250) return false;
+  const t = text.trim();
+  return /content.?filter|filtering policy|blocked by|safety (policy|reasons)/i.test(t) ||
+    /^\[?\(?(I can(’|'|no)?t|I cannot|I(’|')?m (unable|sorry|not able)|I apologize|I won(’|')?t|Output blocked|Response blocked)/i.test(t);
 }
 
 function claudeOcr(jpegBuffer, cb, attempt = 0) {
@@ -85,7 +87,7 @@ function claudeOcr(jpegBuffer, cb, attempt = 0) {
     outerCb(err, text);
   };
   const started = Date.now();
-  const w = takeWorker();
+  const w = attempt === 0 ? takeWorker() : spawnWorker("sonnet");  // retry on a different model
   const child = w.child;
   let done = false;
   let buf = "";
@@ -97,7 +99,8 @@ function claudeOcr(jpegBuffer, cb, attempt = 0) {
     try { child.kill(); } catch (e) {}
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     if (err) log("OCR fail (" + secs + "s): " + err + " stderr: " + w.err.slice(0, 1500));
-    else log("OCR ok in " + secs + "s (worker age " + ((started - w.spawnedAt) / 1000).toFixed(0) + "s), " + text.length + " chars");
+    else log("OCR ok in " + secs + "s (worker age " + ((started - w.spawnedAt) / 1000).toFixed(0) + "s), " + text.length + " chars" +
+             (text.length < 200 ? " | text: " + text.replace(/\s+/g, " ") : ""));
     cb(err, text);
   };
   const killer = setTimeout(() => finish("Claude took too long — try again", null), 150000);

@@ -42,7 +42,7 @@ let warm = null;
 
 function spawnWorker(model) {
   const child = spawn("cmd.exe", ["/c", CLAUDE, "-p",
-    "--model", model || "haiku",
+    "--model", model || "sonnet",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
@@ -87,7 +87,7 @@ function claudeOcr(jpegBuffer, cb, attempt = 0) {
     outerCb(err, text);
   };
   const started = Date.now();
-  const w = attempt === 0 ? takeWorker() : spawnWorker("sonnet");  // retry on a different model
+  const w = attempt === 0 ? takeWorker() : spawnWorker("opus");  // retry blocked pages on a bigger model
   const child = w.child;
   let done = false;
   let buf = "";

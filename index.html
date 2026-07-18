@@ -335,12 +335,16 @@ async function tryHashConnect() {
   const km = location.hash.match(/[#&]k=([A-Za-z0-9]+)/);
   const tm = location.hash.match(/[#&]t=([^&#]+)/);
   const gm = location.hash.match(/[#&]g=([A-Za-z0-9_\-]+)/);
+  const rm = location.hash.match(/[#&]r=([^&#]+)/);
   if (tm) {
     try { pendingImportText = decodeURIComponent(tm[1].replace(/\+/g, "%20")); }
     catch (e) { pendingImportText = tm[1]; }
   }
   if (gm) { geminiKey = gm[1]; localStorage.setItem("zotsnap-gk", geminiKey); }
-  if (km || tm || gm) history.replaceState(null, "", location.pathname + location.search);
+  if (rm) {
+    try { localStorage.setItem("zotsnap-relay", decodeURIComponent(rm[1])); } catch (e) {}
+  }
+  if (km || tm || gm || rm) history.replaceState(null, "", location.pathname + location.search);
   if (!km) return false;
   if (cfg && cfg.key === km[1]) return true;
   try {

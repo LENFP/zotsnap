@@ -8,6 +8,7 @@ URL part matters after first setup).
 import socket
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 import segno
@@ -34,7 +35,12 @@ if not key:
 GEMINI_FILE = Path(__file__).with_name("gemini-key.txt")
 gemini = GEMINI_FILE.read_text().strip() if GEMINI_FILE.exists() else ""
 
+RELAY_FILE = Path(__file__).with_name("relay-url.txt")  # tailnet https address of this PC
+relay = RELAY_FILE.read_text().strip() if RELAY_FILE.exists() else ""
+
 frag = f"#k={key}" + (f"&g={gemini}" if gemini else "")
+if relay:
+    frag += "&r=" + urllib.parse.quote(relay, safe="")
 targets = {OUT: f"http://{lan_ip()}:{PORT}/{frag}"}
 if URL_FILE.exists():
     # public QR is the main one; LAN gets its own (Claude-relay OCR works there)
